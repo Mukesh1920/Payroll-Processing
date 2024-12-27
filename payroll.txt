@@ -1,0 +1,152 @@
+
+
+import java.io.*;
+import java.nio.file.*;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.*;
+
+public class PayrollProcessingSystem {
+
+    public static void main(String[] args) {
+        PayrollProcessingSystem system = new PayrollProcessingSystem();
+        String filePath = "employee_data.csv"; // Change to the file path you want to process
+
+        try {
+            List<EmployeeEvent> events = system.loadEventsFromFile(filePath);
+
+            // Generate required reports
+            system.generateReports(events);
+        } catch (Exception e) {
+            System.err.println("Error processing file: " + e.getMessage());
+        }
+    }
+
+    // Load events from file
+    public List<EmployeeEvent> loadEventsFromFile(String filePath) throws IOException {
+        List<EmployeeEvent> events = new ArrayList<>();
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("d-M-yyyy");
+
+        try (BufferedReader br = Files.newBufferedReader(Paths.get(filePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length >= 8) {
+                    EmployeeEvent event = new EmployeeEvent(
+                            Integer.parseInt(parts[0].trim()),
+                            parts[1].trim(),
+                            parts.length > 2 ? parts[2].trim() : null,
+                            parts.length > 3 ? parts[3].trim() : null,
+                            parts.length > 4 ? parts[4].trim() : null,
+                            parts[5].trim(),
+                            parts[6].trim(),
+                            LocalDate.parse(parts[7].trim(), dateFormatter),
+                            parts.length > 8 ? parts[8].trim() : ""
+                    );
+                    events.add(event);
+                }
+            }
+        }
+        return events;
+    }
+
+    // Generate reports
+    public void generateReports(List<EmployeeEvent> events) {
+        // 1. Total number of employees
+        long totalEmployees = events.stream()
+                .filter(e -> e.event().equals("ONBOARD"))
+                .map(EmployeeEvent::empID)
+                .distinct()
+                .count();
+
+        System.out.println("1. Total Employees: " + totalEmployees);
+
+        // 2a. Month-wise onboarding details
+        Map<Month, List<EmployeeEvent>> onboarding = events.stream()
+                .filter(e -> e.event().equals("ONBOARD"))
+                .collect(Collectors.groupingBy(e -> e.eventDate().getMonth()));
+
+        System.out.println("\n2a. Month-wise Onboarding Details:");
+        onboarding.forEach((month, eventList) -> {
+            System.out.println("Month: " + month);
+            eventList.forEach(event -> {
+                System.out.println(event.empID() + ", " + event.empFName() + ", " + event.empLName() + ", " + event.designation());
+            });
+        });
+
+        // 2b. Month-wise exit details
+        Map<Month, List<EmployeeEvent>> exits = events.stream()
+                .filter(e -> e.event().equals("EXIT"))
+                .collect(Collectors.groupingBy(e -> e.eventDate().getMonth()));
+
+        System.out.println("\n2b. Month-wise Exit Details:");
+        exits.forEach((month, eventList) -> {
+            System.out.println("Month: " + month);
+            eventList.forEach(event -> {
+                System.out.println(event.empFName() + " " + event.empLName());
+            });
+        });
+
+        // 3. Monthly salary report
+        Map<Month, List<EmployeeEvent>> salaries = events.stream()
+                .filter(e -> e.event().equals("SALARY"))
+                .collect(Collectors.groupingBy(e -> e.eventDate().getMonth()));
+
+        System.out.println("\n3. Monthly Salary Report:");
+        salaries.forEach((month, salaryEvents) -> {
+            double totalSalary = salaryEvents.stream()
+                    .mapToDouble(e -> Double.parseDouble(e.value()))
+                    .sum();
+            System.out.println("Month: " + month + ", Total Salary: " + totalSalary + ", Total Employees: " + salaryEvents.size());
+        });
+
+        // 4. Employee-wise financial report
+        Map<String, List<EmployeeEvent>> employeeEvents = events.stream()
+                .filter(e -> List.of("SALARY", "BONUS", "REIMBURSEMENT").contains(e.event()))
+                .collect(Collectors.groupingBy(EmployeeEvent::empID));
+
+        System.out.println("\n4. Employee-wise Financial Report:");
+        employeeEvents.forEach((empID, empEvents) -> {
+            double totalPaid = empEvents.stream()
+                    .mapToDouble(e -> Double.parseDouble(e.value()))
+                    .sum();
+            EmployeeEvent firstEvent = empEvents.get(0);
+            System.out.println("Employee ID: " + empID + ", Name: " + firstEvent.empFName() + " " + firstEvent.empLName() + ", Total Paid: " + totalPaid);
+        });
+
+        // 5. Monthly amount released
+        Map<Month, List<EmployeeEvent>> monthlyPayments = events.stream()
+                .filter(e -> List.of("SALARY", "BONUS", "REIMBURSEMENT").contains(e.event()))
+                .collect(Collectors.groupingBy(e -> e.eventDate().getMonth()));
+
+        System.out.println("\n5. Monthly Amount Released:");
+        monthlyPayments.forEach((month, payments) -> {
+            double totalAmount = payments.stream()
+                    .mapToDouble(e -> Double.parseDouble(e.value()))
+                    .sum();
+            System.out.println("Month: " + month + ", Total Amount: " + totalAmount + ", Total Employees: " + payments.size());
+        });
+
+        // 6. Yearly financial report
+        System.out.println("\n6. Yearly Financial Report:");
+        events.stream()
+                .filter(e -> List.of("SALARY", "BONUS", "REIMBURSEMENT").contains(e.event()))
+                .forEach(event -> {
+                    System.out.println("Event: " + event.event() + ", Emp ID: " + event.empID() + ", Event Date: " + event.eventDate() + ", Event Value: " + event.value());
+                });
+    }
+}
+
+// EmployeeEvent as a record
+record EmployeeEvent(
+        int sequenceNo,
+        String empID,
+        String empFName,
+        String empLName,
+        String designation,
+        String event,
+        String value,
+        LocalDate eventDate,
+        String notes
+) {}
